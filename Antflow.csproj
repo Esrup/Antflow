@@ -56,11 +56,14 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="A_star.cs" />
     <Compile Include="FOV.cs" />
     <Compile Include="FreeFlow.cs" />
     <Compile Include="AntflowInfo.cs" />
     <Compile Include="Person.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Shortest_Walk.cs" />
+    <Compile Include="Shortest_Walk_Terrain.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
