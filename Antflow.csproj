@@ -60,6 +60,7 @@
     <Compile Include="FOV.cs" />
     <Compile Include="FreeFlow.cs" />
     <Compile Include="AntflowInfo.cs" />
+    <Compile Include="A_Star3D.cs" />
     <Compile Include="Person.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Shortest_Walk.cs" />
