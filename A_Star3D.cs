@@ -37,6 +37,7 @@ namespace Antflow
         protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
         {
             pManager.AddPointParameter("Path", "Path", "Path", GH_ParamAccess.tree);
+            pManager.AddPointParameter("Closed", "Closed", "Closed", GH_ParamAccess.list);
 
         }
 
@@ -56,6 +57,7 @@ namespace Antflow
 
             //Declare lists
             List<Point3d> path = new List<Point3d>();
+            List<Point3d> Closed = new List<Point3d>();
             Grasshopper.DataTree<Point3d> tree = new Grasshopper.DataTree<Point3d>();
 
             //Get Inputs
@@ -83,13 +85,22 @@ namespace Antflow
 
             for (int i = 0; i < interests.Count; i++)
             {
-                path = RunAstar3d(person, interests[i], obstacles, floor, slope, Person_Height);
-                tree.AddRange(path, new Grasshopper.Kernel.Data.GH_Path(i));
+                Results sim = RunAstar3d(person, interests[i], obstacles, floor, slope, Person_Height);
+                tree.AddRange(sim.Path, new Grasshopper.Kernel.Data.GH_Path(i));
+                Closed = sim.Closed;
             }
             DA.SetDataTree(0, tree);
+            DA.SetDataList(1, Closed);
         }
 
-        public static List<Point3d> RunAstar3d(Point3d person, Point3d interest, List<Mesh> obstacles, List<Mesh> Floors, double slope, double Person_Height)
+        public struct Results
+        {
+           
+            public List<Point3d> Path { get; set; }
+            public List<Point3d> Closed { get; set; }
+
+        }
+        public static Results RunAstar3d(Point3d person, Point3d interest, List<Mesh> obstacles, List<Mesh> Floors, double slope, double Person_Height)
         {
 
             //Run solver
@@ -100,7 +111,8 @@ namespace Antflow
             List<Point3d> Pointpaths = new List<Point3d>();
             List<Point3d> finalPath = new List<Point3d>();
             List<A_star> children = new List<A_star>();
-            
+            List<Point3d> closedlist = new List<Point3d>();
+
 
 
 
@@ -143,7 +155,11 @@ namespace Antflow
             catch (Exception)
             {
 
-                return null;
+                foreach (A_star node in closed)
+                {
+                    closedlist.Add(node.Position);
+                }
+                return new Results { Path = finalPath, Closed = closedlist }; ;
 
             }
 
@@ -208,7 +224,7 @@ namespace Antflow
                     //Check for final obstacle
                     Vector3d vectorToFinal = interest - currentNode.Position;
                     Ray3d ray = new Ray3d(currentNode.Position, vectorToFinal);
-                    double rayT = Rhino.Geometry.Intersect.Intersection.MeshRay(obsMesh,ray);
+                    double rayT = Rhino.Geometry.Intersect.Intersection.MeshRay(obsMesh, ray);
                     if (rayT < 0 | ray.PointAt(rayT).DistanceTo(currentNode.Position) > 2)
                     {
 
@@ -225,7 +241,13 @@ namespace Antflow
                         finalPath.Add(start.Position);
                         finalPath.Reverse();
                         finalPath.Add(end.Position);
-                        return finalPath;
+                        
+                        
+                        foreach (A_star node in closed)
+                        {
+                            closedlist.Add(node.Position);
+                        }
+                        return new Results { Path = finalPath, Closed = closedlist };
                     }
 
                 }
@@ -261,9 +283,9 @@ namespace Antflow
                     catch (Exception)
                     {
 
-                        
-                            continue;
-                        
+
+                        continue;
+
                     }
 
 
@@ -308,8 +330,10 @@ namespace Antflow
                         continue;
                     }
 
+                    double height_dif = child.Position.Z - interest.Z;
+
                     child.g = currentNode.g + 1;
-                    child.h = child.Position.DistanceTo(end.Position);
+                    child.h = child.Position.DistanceTo(end.Position) + (Math.Abs(height_dif) * 1000);
                     child.f = child.g + child.h;
 
                     for (int i = 0; i < open.Count; i++)
@@ -357,7 +381,12 @@ namespace Antflow
 
 
             }
-            return finalPath;
+            
+            foreach (A_star node in closed)
+            {
+                closedlist.Add(node.Position);
+            }
+            return new Results { Path = finalPath, Closed = closedlist };
         }
 
 
