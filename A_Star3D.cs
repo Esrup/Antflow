@@ -47,6 +47,11 @@ namespace Antflow
         /// <param name="DA">The DA object is used to retrieve from inputs and store in outputs.</param>
         protected override void SolveInstance(IGH_DataAccess DA)
         {
+
+            //Declare warning & messages
+            string warning = "";
+            string error = "";
+
             //Declare inputs
             Point3d person = new Point3d();
             List<Point3d> interests = new List<Point3d>();
@@ -67,30 +72,25 @@ namespace Antflow
             DA.GetDataList(3, floor);
             DA.GetData(4, ref slope);
 
-            //Run Astar ||choose nearest interest
-            //int mincount = int.MaxValue;
-            //for (int i = 0; i < interests.Count; i++)
-            //{
-            //    List<Point3d> apath = RunAstar(person, interests[i], obstacles);
-            //    mincount = apath.Count;
-            //    path.Clear();
-            //    path = apath;
-            //    //Declare outputs
-            //    DA.SetDataList(0, path);
-
-
-            //}
-
-
+        
 
             for (int i = 0; i < interests.Count; i++)
             {
                 Results sim = RunAstar3d(person, interests[i], obstacles, floor, slope, Person_Height);
                 tree.AddRange(sim.Path, new Grasshopper.Kernel.Data.GH_Path(i));
                 Closed = sim.Closed;
+                warning = sim.Warning;
+                error = sim.Error;
             }
             DA.SetDataTree(0, tree);
             DA.SetDataList(1, Closed);
+
+
+            if ( warning!= null)
+                this.AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, warning);
+            if (error != null)
+                this.AddRuntimeMessage(GH_RuntimeMessageLevel.Error, error);
+
         }
 
         public struct Results
@@ -98,8 +98,13 @@ namespace Antflow
            
             public List<Point3d> Path { get; set; }
             public List<Point3d> Closed { get; set; }
+            public String Warning { get; set; }
+            public String Error { get; set; }
 
         }
+
+        
+
         public static Results RunAstar3d(Point3d person, Point3d interest, List<Mesh> obstacles, List<Mesh> Floors, double slope, double Person_Height)
         {
 
@@ -134,8 +139,10 @@ namespace Antflow
 
 
             ////Interest on mesh
-            List<Point3d> intList = new List<Point3d>();
-            intList.Add(interest);
+            List<Point3d> intList = new List<Point3d>
+            {
+                interest
+            };
             try
             {
                 Point3d[] templist = Rhino.Geometry.Intersect.Intersection.ProjectPointsToMeshes(Floors, intList, new Vector3d(0, 0, -1), 0);
@@ -159,7 +166,40 @@ namespace Antflow
                 {
                     closedlist.Add(node.Position);
                 }
-                return new Results { Path = finalPath, Closed = closedlist }; ;
+                
+                return new Results { Path = finalPath, Closed = closedlist, Error = "Interest not placed above a floor" }; ;
+
+            }
+
+            ////Start on mesh
+            List<Point3d> startList = new List<Point3d>
+            {
+                person
+            };
+            try
+            {
+                Point3d[] templist = Rhino.Geometry.Intersect.Intersection.ProjectPointsToMeshes(Floors, startList, new Vector3d(0, 0, -1), 0);
+                double mindist = double.MaxValue;
+                Point3d temp_pos = person;
+                for (int i = 0; i < templist.Length; i++)
+                {
+                    double dist = templist[i].DistanceTo(person);
+                    if (dist < mindist)
+                    {
+                        temp_pos = templist[i];
+                        mindist = dist;
+                    }
+                }
+                person = temp_pos;
+            }
+            catch (Exception)
+            {
+
+                foreach (A_star node in closed)
+                {
+                    closedlist.Add(node.Position);
+                }
+                return new Results { Path = finalPath, Closed = closedlist, Error = "Person not placed above a floor" }; ;
 
             }
 
@@ -300,7 +340,7 @@ namespace Antflow
                     if (slope != 0)
                     {
                         double terrain_slope = (child_position.Z - currentNode.Position.Z) / Math.Sqrt(Math.Pow(child_position.Y - currentNode.Position.Y, 2) + Math.Pow(child_position.X - currentNode.Position.X, 2));
-                        if (terrain_slope * 100 > slope)
+                        if ((Math.Atan(terrain_slope)*180/Math.PI)  > slope)
                         {
                             continue;
                         }
@@ -333,7 +373,7 @@ namespace Antflow
                     double height_dif = child.Position.Z - interest.Z;
 
                     child.g = currentNode.g + 1;
-                    child.h = child.Position.DistanceTo(end.Position) + (Math.Abs(height_dif) * 1000);
+                    child.h = child.Position.DistanceTo(end.Position) + (Math.Abs(height_dif) * 100);
                     child.f = child.g + child.h;
 
                     for (int i = 0; i < open.Count; i++)
@@ -365,7 +405,7 @@ namespace Antflow
                     open.Add(child);
 
 
-                    if (open.Count > 10000)
+                    if (open.Count > 100000)
                     {
                         run = false;
                     }
@@ -386,7 +426,9 @@ namespace Antflow
             {
                 closedlist.Add(node.Position);
             }
-            return new Results { Path = finalPath, Closed = closedlist };
+            return new Results { Path = finalPath, Closed = closedlist, Error = $"Exceeded count threshold of {open.Count}" };
+
+
         }
 
 
