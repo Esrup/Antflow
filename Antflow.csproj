@@ -56,15 +56,18 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="A_star.cs" />
-    <Compile Include="FOV.cs" />
-    <Compile Include="FreeFlow.cs" />
+    <Compile Include="Flow\Class\A_star.cs" />
+    <Compile Include="Flow\Components\FOV.cs" />
+    <Compile Include="Flow\Components\FreeFlow.cs" />
     <Compile Include="AntflowInfo.cs" />
-    <Compile Include="A_Star3D.cs" />
-    <Compile Include="Person.cs" />
+    <Compile Include="Flow\Components\A_Star3D.cs" />
+    <Compile Include="Flow\Class\Person.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Shortest_Walk.cs" />
-    <Compile Include="Shortest_Walk_Terrain.cs" />
+    <Compile Include="Flow\Components\Shortest_Walk.cs" />
+    <Compile Include="Flow\Components\Shortest_Walk_Terrain.cs" />
+    <Compile Include="Traffic\Class\LocalRules.cs" />
+    <Compile Include="Traffic\Class\ParkingLot.cs" />
+    <Compile Include="Traffic\Parking.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
@@ -76,7 +79,7 @@
   -->
   <PropertyGroup>
     <PostBuildEvent>Copy "$(TargetPath)" "$(TargetDir)$(ProjectName).gha"
-Erase "$(TargetPath)"</PostBuildEvent>
+</PostBuildEvent>
   </PropertyGroup>
   <PropertyGroup>
     <FallbackCulture>en-US</FallbackCulture>
