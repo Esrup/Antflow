@@ -18,90 +18,152 @@ namespace Antflow.Traffic.Class
 
         //Declare List
         public List<Curve> parkingSpaces = new List<Curve>();
+        public List<Parkingspace> Spaces = new List<Parkingspace>();
         public List<Curve> notParkingSpaces = new List<Curve>();
         public int parkingspaceNO;
         private List<Curve> CenterLines = new List<Curve>();
         private List<Curve> parkingEnds = new List<Curve>();
-        private List<Curve> parkingLinesLeft = new List<Curve>();
-        private List<Curve> parkingLinesRight = new List<Curve>();
+        private List<Parkingspace> parkingLinesLeft = new List<Parkingspace>();
+        private List<Parkingspace> parkingLinesRight = new List<Parkingspace>();
 
-        //Debugger
-        public List<Box> debug = new List<Box>();
+        //DEBUG
+        public List<Curve> debug = new List<Curve>();
 
 
 
-        public ParkingLot(Curve bounderyCurve, LocalRules localRules, Plane plane)
+        public ParkingLot(Curve bounderyCurve, LocalRules localRules, Plane plane, List<GeometryBase> obstacles)
         {
-            CreateParkingLot(bounderyCurve, localRules, plane);
+            CreateOuterParkingLot(bounderyCurve, localRules, plane);
+            CreateInnerParkinglots(bounderyCurve, localRules, plane);
+            clearObstacles(obstacles);
         }
 
 
-        private void CreateParkingLot(Curve bounderyCurve, LocalRules localRules, Plane plane)
+        //Create Parkinglots along edge
+        private void CreateOuterParkingLot(Curve bounderyCurve, LocalRules localRules, Plane plane)
         {
-            //TODO Change Curve offset
-            Curve[] offsetBoundery = bounderyCurve.Offset(Plane.WorldXY, localRules.BoothDepth, 0.0, CurveOffsetCornerStyle.Sharp);
-            offsetBoundery = Curve.JoinCurves(offsetBoundery, 0.5);
-
-            //Make Outer parkingplaces
-            List<Curve> outerParkingLines = new List<Curve>();
-            double[] divpar = offsetBoundery[0].DivideByLength(localRules.BoothWidth, true, false, out Point3d[] points);
-            for (int i = 0; i < points.Length; i++)
+            List<Parkingspace> tempSpaces = new List<Parkingspace>();
+            //Change Curve offset
+            BoundingBox bx = bounderyCurve.GetBoundingBox(Plane.WorldXY);
+            Point3d[] bxPT = bx.GetCorners();
+            Curve[] offsetBoundery = bounderyCurve.Offset(bxPT[0], Vector3d.ZAxis, -localRules.BoothDepth, 0.0, CurveOffsetCornerStyle.Sharp);
+            List<Curve> explodeOffsetBoundary = new List<Curve>();
+            foreach (var curve in offsetBoundery)
             {
-                
-                Vector3d Dir = offsetBoundery[0].TangentAt(divpar[i]);
-                Dir.PerpendicularTo(Dir);
-                Dir.Unitize();
-                Dir = Vector3d.Multiply(localRules.BoothDepth, Dir);
-                //One way
-                Line parkingLine = new Line(points[i], Dir);
-                //Check direction and if wrong reverse
-                if (offsetBoundery[0].Contains(parkingLine.PointAtLength(0.5), plane, 0.0) != PointContainment.Outside)
+                if(curve is PolylineCurve)
                 {
-                    Dir.Reverse();
-                    parkingLine = new Line(points[i], Dir);
+                    explodeOffsetBoundary.AddRange(curve.DuplicateSegments());
                 }
-
-                
-
-                outerParkingLines.Add(parkingLine.ToNurbsCurve());
-                
-            }
-            
-            
-            //Check for overlapping line caused by degrees larger than 180 
-            List<int> intertsectionCounts = new List<int>();
-
-            for (int j = 0; j < outerParkingLines.Count; j++)
-            {
-                int counter = 0;
-                for (int k = j + 1; k < outerParkingLines.Count; k++)
+                else
                 {
-                    CurveIntersections intersectionEvent = Rhino.Geometry.Intersect.Intersection.CurveCurve(outerParkingLines[j], outerParkingLines[k], 0.00, 0.00);
-                    if (intersectionEvent.Count > 0)
+                    explodeOffsetBoundary.Add(curve);
+                }
+            }
+            Curve[] offsetBounderyjoined = Curve.JoinCurves(offsetBoundery, 0.5);
+
+            debug.AddRange(explodeOffsetBoundary);
+
+            //Make Outer parkingplots
+
+            foreach (var curve in explodeOffsetBoundary)
+            {
+                double[] divpar = curve.DivideByLength(localRules.BoothWidth, true, false, out Point3d[] points);
+
+                //Create Booths
+                for (int i = 0; i < points.Length; i++)
+                {
+
+                    Vector3d Dir = curve.TangentAt(divpar[i]);
+                    Dir.Rotate(Math.PI / 2, Vector3d.ZAxis);
+                    Dir.Unitize();
+                    if (bounderyCurve.ClosedCurveOrientation() == CurveOrientation.CounterClockwise)
                     {
-                        counter++;
-                        break;
+
+                        Dir.Reverse();
+                    }
+                    Dir = Vector3d.Multiply(localRules.BoothDepth, Dir);
+
+                    // Create new parking
+                    Plane boothPlane = new Plane(points[i], curve.TangentAt(divpar[i]), Dir);
+                    Parkingspace parkingspace = new Parkingspace(boothPlane, localRules, false);
+
+                    
+                    tempSpaces.Add(parkingspace);
+
+
+
+                }
+                 
+                List<int> spacesToCull = new List<int>();
+
+                // Check if Parkinglot fullfill criterias
+                if (bounderyCurve.IsPeriodic != true)
+                {
+                    for (int j = 0; j < tempSpaces.Count; j++)
+                    {
+                        Curve boxCurves = tempSpaces[j].ManeuveringBox.ToNurbsCurve();
+
+                        //Check for maneuveringarea
+                        if (Intersection.CurveCurve(offsetBounderyjoined[0], boxCurves, 0.0, 0.001).Count > 1)
+                        {
+
+                            spacesToCull.Add(j);
+                            continue;
+                        }
+                        //Check if booths exceed the ends
+                        if (offsetBounderyjoined[0].Contains(tempSpaces[j].Curves.PointAtStart, plane, 0.001) != PointContainment.Coincident)
+                        {
+                            spacesToCull.Add(j);
+                            continue;
+                        }
+                        if (offsetBounderyjoined[0].Contains(tempSpaces[j].Curves.PointAtEnd, plane, 0.001) != PointContainment.Coincident)
+                        {
+                            spacesToCull.Add(j);
+                            continue;
+                        }
+                    }
+                    //Check if end booths overlap >180 degress corners
+                    for (int i = 5; i < (tempSpaces.Count); i++)
+                    {
+                        if (spacesToCull.Contains(i))
+                        {
+                            continue;
+                        }
+                        if (bounderyCurve.Contains(tempSpaces[i].Curves.PointAtLength(localRules.BoothDepth), Plane.WorldXY, 0.001) != PointContainment.Coincident)
+                        {
+                            spacesToCull.Add(i);
+                            continue;
+                        }
+                        if (bounderyCurve.Contains(tempSpaces[i].Curves.PointAtLength(tempSpaces[i].Curves.GetLength()-localRules.BoothDepth), Plane.WorldXY, 0.001) != PointContainment.Coincident)
+                        {
+                            spacesToCull.Add(i);
+                            continue;
+                        }
                     }
                 }
-                intertsectionCounts.Add(counter);
-                
-            }
 
-            for (int l = 0; l < outerParkingLines.Count; l++)
-            {
-                if (intertsectionCounts[l] == 0)
+                //Remove Parkinglots that doesn't fullfill criterias
+                spacesToCull.Sort();
+                spacesToCull.Reverse();
+                foreach (int index in spacesToCull)
                 {
-                    parkingSpaces.Add(outerParkingLines[l]);
+                    tempSpaces.RemoveAt(index);
                 }
-                
+                Spaces.AddRange(tempSpaces);
             }
+        }
 
+        //Create inner Parkinglots
+        private void CreateInnerParkinglots(Curve bounderyCurve, LocalRules localRules, Plane plane)
+        {
 
-            //Make boundarybox and starterline
-            Curve innerBounderyCrv = bounderyCurve.Offset(plane, (localRules.BoothDepth + localRules.ManeuveringArea), 0.5, CurveOffsetCornerStyle.Sharp)[0];
-            Box boundarybox;
-            innerBounderyCrv.GetBoundingBox(plane, out boundarybox);
-            debug.Add(boundarybox);
+            //Create offset curve with outer booth and driveway distance
+            BoundingBox bx = bounderyCurve.GetBoundingBox(Plane.WorldXY);
+            Point3d[] bxPT = bx.GetCorners();
+            Curve innerBounderyCrv = bounderyCurve.Offset(bxPT[0], Vector3d.ZAxis, -(localRules.BoothDepth + localRules.ManeuveringArea), 0.5, CurveOffsetCornerStyle.Sharp)[0];
+            
+            //Create BB and centerlines
+            innerBounderyCrv.GetBoundingBox(plane, out Box boundarybox);
             Point3d[] boxCorners = boundarybox.GetCorners();
             Line startLine = new Line(boxCorners[0], boxCorners[1]);
             Line endLine = new Line(boxCorners[3], boxCorners[2]);
@@ -112,19 +174,20 @@ namespace Antflow.Traffic.Class
             boothDir = Vector3d.Multiply(localRules.BoothDepth, boothDir);
 
             //Copy center lines according to distancerules
-            List<Line> copyLines = new List<Line>();
+            List<Curve> copyLines = new List<Curve>();
+            
             for (double i = 0; i < startLine.Length;)
             {
                 Point3d startPT = startLine.PointAtLength(i);
                 Point3d endPT = endLine.PointAtLength(i);
-                copyLines.Add(new Line(startPT, endPT));
+                copyLines.Add(new Line(startPT, endPT).ToNurbsCurve());
                 i = i + (localRules.BoothDepth * 2) + localRules.ManeuveringArea;
             }
 
+
             //Find inner curves
-            foreach (Line line in copyLines)
+            foreach (Curve crvline in copyLines)
             {
-                Curve crvline = line.ToNurbsCurve();
                 var curveEvent = Intersection.CurveCurve(innerBounderyCrv, crvline, 0, 0);
                 if (curveEvent != null)
                 {
@@ -155,20 +218,22 @@ namespace Antflow.Traffic.Class
             //Parking Booths
             foreach (Curve curve in CenterLines)
             {
-                curve.DivideByLength(localRules.BoothWidth, true, false, out Point3d[] midpoints);
-                if (midpoints.Length == 0)
+                curve.DivideByLength(localRules.BoothWidth, true, false, out Point3d[] points);
+                if (points.Length == 0)
                 {
                     continue;
                 }
-                foreach (Point3d point in midpoints)
+                foreach (Point3d point in points)
                 {
                     //One way
-                    Line parkingLine = new Line(point, boothDir);
-                    parkingLinesLeft.Add(parkingLine.ToNurbsCurve());
+                    Plane boothPlane = new Plane(point, curve.TangentAt(0.1), boothDir);
+                    Parkingspace parkingspace = new Parkingspace(boothPlane, localRules, true);
+                    parkingLinesLeft.Add(parkingspace);
                     //Opposite way
                     boothDir.Reverse();
-                    parkingLine = new Line(point, boothDir);
-                    parkingLinesRight.Add(parkingLine.ToNurbsCurve());
+                    boothPlane = new Plane(point, curve.TangentAt(0.1), boothDir);
+                    parkingspace = new Parkingspace(boothPlane, localRules, true);
+                    parkingLinesLeft.Add(parkingspace);
                     //Return Vector
                     boothDir.Reverse();
                 }
@@ -179,77 +244,75 @@ namespace Antflow.Traffic.Class
 
                 //Check for collision with driving path
 
-                List<Curve> finalParkingLinesLeft = new List<Curve>();
-                List<Curve> finalParkingLinesRight = new List<Curve>();
+                List<Parkingspace> finalParkingLinesLeft = new List<Parkingspace>();
+                List<Parkingspace> finalParkingLinesRight = new List<Parkingspace>();
                 for (int i = 0; i < parkingLinesLeft.Count; i++)
                 {
-                    CurveIntersections crvEvent = Intersection.CurveCurve(innerBounderyCrv, parkingLinesLeft[i], 0.0001, 0.0000);
+                    CurveIntersections crvEvent = Intersection.CurveCurve(innerBounderyCrv, parkingLinesLeft[i].Curves, 0.0001, 0.0000);
                     if (crvEvent.Count > 0)
                     {
-                        parkingEnds.Add(parkingLinesLeft[i]);
+                        parkingEnds.Add(parkingLinesLeft[i].Curves);
 
                     }
                     else
                     {
                         finalParkingLinesLeft.Add(parkingLinesLeft[i]);
-                        startPTsLeft.Add(parkingLinesLeft[i].PointAtStart);
-                        allStartPT.Add(parkingLinesLeft[i].PointAtStart);
+                        startPTsLeft.Add(parkingLinesLeft[i].Curves.PointAtStart);
+                        allStartPT.Add(parkingLinesLeft[i].Curves.PointAtStart);
                     }
                 }
 
                 for (int i = 0; i < parkingLinesRight.Count; i++)
                 {
-                    CurveIntersections crvEvent = Intersection.CurveCurve(innerBounderyCrv, parkingLinesRight[i], 0.0001, 0.0000);
+                    CurveIntersections crvEvent = Intersection.CurveCurve(innerBounderyCrv, parkingLinesRight[i].Curves, 0.0001, 0.0000);
                     if (crvEvent.Count > 0)
                     {
-                        parkingEnds.Add(parkingLinesRight[i]);
+                        parkingEnds.Add(parkingLinesRight[i].Curves);
 
                     }
                     else
                     {
                         finalParkingLinesRight.Add(parkingLinesRight[i]);
-                        startPTsRight.Add(parkingLinesRight[i].PointAtStart);
-                        allStartPT.Add(parkingLinesRight[i].PointAtStart);
+                        startPTsRight.Add(parkingLinesRight[i].Curves.PointAtStart);
+                        allStartPT.Add(parkingLinesRight[i].Curves.PointAtStart);
                     }
                 }
 
 
 
 
-                try
-                {
-                    //Fix one end
-                    Point3d crvEnd = curve.PointAtEnd;
-                    Curve endCurve = createEnds(innerBounderyCrv, startPTsLeft, startPTsRight, finalParkingLinesLeft, finalParkingLinesRight, crvEnd);
-                    notParkingSpaces.Add(endCurve);
-                    Curve splitCurveOne = splitend(curve, allStartPT, crvEnd);
+                //try
+                //{
+                //    //Fix one end
+                //    Point3d crvEnd = curve.PointAtEnd;
+                //    Curve endCurve = createEnds(innerBounderyCrv, startPTsLeft, startPTsRight, finalParkingLinesLeft, finalParkingLinesRight, crvEnd);
+                //    notParkingSpaces.Add(endCurve);
+                //    Curve splitCurveOne = splitend(curve, allStartPT, crvEnd);
 
-                    //Fix the other end
-                    Point3d crvStart = curve.PointAtStart;
-                    endCurve = createEnds(innerBounderyCrv, startPTsLeft, startPTsRight, finalParkingLinesLeft, finalParkingLinesRight, crvStart);
-                    notParkingSpaces.Add(endCurve);
-                    notParkingSpaces.Add(splitend(splitCurveOne, allStartPT, crvStart));
+                //    //Fix the other end
+                //    Point3d crvStart = curve.PointAtStart;
+                //    endCurve = createEnds(innerBounderyCrv, startPTsLeft, startPTsRight, finalParkingLinesLeft, finalParkingLinesRight, crvStart);
+                //    notParkingSpaces.Add(endCurve);
+                //    notParkingSpaces.Add(splitend(splitCurveOne, allStartPT, crvStart));
 
-                }
-                catch
-                {
+                //}
+                //catch
+                //{
 
-                }
+                //}
 
 
-                parkingSpaces.AddRange(finalParkingLinesLeft);
-                parkingSpaces.AddRange(finalParkingLinesRight);
+                Spaces.AddRange(finalParkingLinesLeft);
+                Spaces.AddRange(finalParkingLinesRight);
 
                 parkingspaceNO = parkingSpaces.Count;
 
-                
+
 
             }
-
-
-            //parkingSpaces.AddRange(CenterLines);
         }
 
+        
         private Curve splitend(Curve curve, PointCloud allStartPT, Point3d crvEnd)
         {
             //split ends of centerline
@@ -268,7 +331,7 @@ namespace Antflow.Traffic.Class
             return splitCenter;
         }
 
-        private static Curve createEnds(Curve innerBounderyCrv, PointCloud startPTsLeft, PointCloud startPTsRight, List<Curve> finalParkingLinesLeft, List<Curve> finalParkingLinesRight, Point3d crvEnd)
+        private static Curve createEnds(Curve innerBounderyCrv, PointCloud startPTsLeft, PointCloud startPTsRight, List<Parkingspace> finalParkingLinesLeft, List<Parkingspace> finalParkingLinesRight, Point3d crvEnd)
         {
             List<double> CurveT = new List<double>();
             CurveIntersections intersectionsOne;
@@ -307,10 +370,10 @@ namespace Antflow.Traffic.Class
             return endCurve;
         }
 
-        private static void closeIntersect(Curve innerBounderyCrv, PointCloud startPTsLeft, List<Curve> finalParkingLinesLeft, Point3d crvEnd, out Curve lineOne, out CurveIntersections intersectionsOne)
+        private static void closeIntersect(Curve innerBounderyCrv, PointCloud startPTsLeft, List<Parkingspace> finalParkingLinesLeft, Point3d crvEnd, out Curve lineOne, out CurveIntersections intersectionsOne)
         {
             int indexOne = startPTsLeft.ClosestPoint(crvEnd);
-            lineOne = finalParkingLinesLeft[indexOne];
+            lineOne = finalParkingLinesLeft[indexOne].Curves;
 
             Vector3d vectorone = lineOne.TangentAtEnd;
             vectorone.Rotate(RhinoMath.ToRadians(90), new Vector3d(0, 0, 1));
@@ -328,6 +391,102 @@ namespace Antflow.Traffic.Class
             }
             vectorone = Vector3d.Multiply(vectorone, 10);
             intersectionsOne = Intersection.CurveCurve(innerBounderyCrv, new Line(lineOne.PointAtEnd, vectorone).ToNurbsCurve(), 0.01, 0.01);
+        }
+
+        //Obstacle detection
+        private void clearObstacles(List<GeometryBase> obstacles)
+        {
+            foreach (var obstacle in obstacles)
+            {
+                if(obstacle is Curve)
+                {
+                    Curve crvObstacle = (Curve)obstacle;
+                    List<int> cullList = new List<int>();
+                    for (int i = 0; i < Spaces.Count; i++)
+                    {
+                        if(Intersection.CurveCurve(crvObstacle, Spaces[i].Curves, 0.001, 0.001).Count != 0)
+                        {
+                            cullList.Add(i);
+                            continue;
+                        }
+                        if (Intersection.CurveCurve(crvObstacle, Spaces[i].ManeuveringBox.ToNurbsCurve(), 0.001, 0.001).Count != 0)
+                        {
+                            cullList.Add(i);
+                            continue;
+                        }
+                        if (crvObstacle.Contains(Spaces[i].Curves.PointAtEnd, Plane.WorldXY, 0.001) == PointContainment.Inside)
+                        {
+                            cullList.Add(i);
+                            continue;
+                        }
+
+                    }
+                    cullList.Reverse();
+                    foreach (int index in cullList)
+                    {
+                        Spaces.RemoveAt(index);
+                    }
+                }
+                if (obstacle is Brep)
+                {
+                    Brep brepObstacle = (Brep)obstacle;
+                    List<int> cullList = new List<int>();
+                    for (int i = 0; i < Spaces.Count; i++)
+                    {
+                        Intersection.CurveBrep(Spaces[i].Curves, brepObstacle, 0.001, 0.001, out double[] insections);
+                        if (insections.Length != 0)
+                        {
+                            cullList.Add(i);
+                            continue;
+                        }
+                        Intersection.CurveBrep(Spaces[i].ManeuveringBox.ToNurbsCurve(), brepObstacle, 0.001, 0.001, out insections);
+                        if (insections.Length != 0)
+                        {
+                            cullList.Add(i);
+                            continue;
+                        }
+                        if (brepObstacle.IsPointInside(Spaces[i].Curves.PointAtEnd, 0.001, true))
+                        {
+                            cullList.Add(i);
+                            continue;
+                        }
+                    }
+                    cullList.Reverse();
+                    foreach (int index in cullList)
+                    {
+                        Spaces.RemoveAt(index);
+                    }
+                }
+                if (obstacle is Mesh)
+                {
+                    Mesh meshObstacle = (Mesh)obstacle;
+                    List<int> cullList = new List<int>();
+                    for (int i = 0; i < Spaces.Count; i++)
+                    {
+                        if (Intersection.MeshPolyline(meshObstacle, Spaces[i].Box.ToPolyline().ToPolylineCurve(), out int[] notused).Length != 0)
+                        {
+                            cullList.Add(i);
+                            continue;
+                        }
+                        if (Intersection.MeshPolyline(meshObstacle, Spaces[i].ManeuveringBox.ToPolyline().ToPolylineCurve(), out notused).Length != 0)
+                        {
+                            cullList.Add(i);
+                            continue;
+                        }
+                        if (meshObstacle.IsPointInside(Spaces[i].Curves.PointAtEnd, 0.001, true))
+                        {
+                            cullList.Add(i);
+                            continue;
+                        }
+
+                    }
+                    cullList.Reverse();
+                    foreach (int index in cullList)
+                    {
+                        Spaces.RemoveAt(index);
+                    }
+                }
+            }
         }
     }
 

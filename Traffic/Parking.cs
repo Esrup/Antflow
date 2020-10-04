@@ -28,6 +28,8 @@ namespace Antflow.Traffic
             pManager.AddCurveParameter("Boundery", "Boundery", "Boundery", GH_ParamAccess.item);
             pManager.AddPlaneParameter("Plane", "Plane", "Plane", GH_ParamAccess.item);
             pManager[1].Optional = true;
+            pManager.AddGeometryParameter("Obstacles", "Obstacles", "Obstacles", GH_ParamAccess.list);
+            pManager[2].Optional = true;
         }
 
         /// <summary>
@@ -49,11 +51,13 @@ namespace Antflow.Traffic
         {
             //Declare inputs
             Curve BounderyCrv = null;
-            Plane xyPlane = Plane.WorldXY;
+            Plane? xyPlane = null;
+            List<GeometryBase> obstacles = new List<GeometryBase>();
 
             //Get inputs
             DA.GetData(0, ref BounderyCrv);
             DA.GetData(1, ref xyPlane);
+            DA.GetDataList(2, obstacles);
 
             //Select localrules TODO
             var localrules = new LocalRules();
@@ -61,7 +65,7 @@ namespace Antflow.Traffic
             //Create Parkinglots - Check if there is a plane userinput
             ParkingLot parkingLot;
 
-            if (xyPlane == Plane.WorldXY)
+            if (xyPlane.HasValue == false)
             {
                 //Create Parking lot with the best Plane orientation
                 int[] numberOfParkinglots = new int[180];
@@ -71,11 +75,11 @@ namespace Antflow.Traffic
 
                 Parallel.For(0, 180, i =>
                 {
-                    xyPlane = Plane.WorldXY;
-                    xyPlane.Rotate(i*(Math.PI / 180.0), new Vector3d(0, 0, 1));
+                    Plane newPlane = Plane.WorldXY;
+                    newPlane.Rotate(i*(Math.PI / 180.0), new Vector3d(0, 0, 1));
                     try
                     {
-                        var tempParkingLot = new ParkingLot(BounderyCrv, localrules, xyPlane);
+                        var tempParkingLot = new ParkingLot(BounderyCrv, localrules, newPlane, obstacles);
 
                         numberOfParkinglots.SetValue(tempParkingLot.parkingspaceNO, i);
                         degrees.SetValue(i, i);
@@ -107,20 +111,27 @@ namespace Antflow.Traffic
                 }
                 Plane bestPlane = Plane.WorldXY;
                 bestPlane.Rotate(degreeIndex * (Math.PI / 180.0), new Vector3d(0, 0, 1));
-                parkingLot = new ParkingLot(BounderyCrv, localrules, bestPlane);
+                parkingLot = new ParkingLot(BounderyCrv, localrules, bestPlane, obstacles);
             }
             else
             {
             //Create Parking lot with user choosen Plane
-            parkingLot = new ParkingLot(BounderyCrv, localrules, xyPlane);
+            
+            parkingLot = new ParkingLot(BounderyCrv, localrules, xyPlane.Value, obstacles);
+            }
+
+            List<Curve> SpaceCurves = new List<Curve>();
+            List<Rectangle3d> debuging = new List<Rectangle3d>();
+            foreach (Parkingspace lot in parkingLot.Spaces)
+            {
+                SpaceCurves.Add(lot.Curves);
+                //debuging.Add(lot.ManeuveringBox);
             }
             
-
-            
             //Set Outputs
-            DA.SetDataList(0, parkingLot.parkingSpaces);
+            DA.SetDataList(0, SpaceCurves);
             DA.SetDataList(1, parkingLot.notParkingSpaces);
-            //DA.SetDataList(2, parkingLot.debug);
+            DA.SetDataList(2, parkingLot.debug);
 
 
 

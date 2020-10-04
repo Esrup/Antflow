@@ -67,6 +67,7 @@
     <Compile Include="Flow\Components\Shortest_Walk_Terrain.cs" />
     <Compile Include="Traffic\Class\LocalRules.cs" />
     <Compile Include="Traffic\Class\ParkingLot.cs" />
+    <Compile Include="Traffic\Class\Parkingspace.cs" />
     <Compile Include="Traffic\Parking.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
