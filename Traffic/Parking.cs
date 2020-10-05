@@ -1,4 +1,18 @@
-﻿using System;
+﻿/* Copyright 2020 Mikkel Esrup Steenberg 
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), 
+to deal in the Software without restriction, including without limitation the rights to use, 
+copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, 
+and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, 
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. 
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.*/
+using System;
 using System.Collections.Generic;
 using Antflow.Traffic.Class;
 using Grasshopper.Kernel;
@@ -29,7 +43,8 @@ namespace Antflow.Traffic
             pManager.AddPlaneParameter("Plane", "Plane", "Plane", GH_ParamAccess.item);
             pManager[1].Optional = true;
             pManager.AddGeometryParameter("Obstacles", "Obstacles", "Obstacles", GH_ParamAccess.list);
-            pManager[2].Optional = true;
+            pManager.AddIntegerParameter("Precision", "Precision", "The step size in degrees, that the script should be running", GH_ParamAccess.item, 10);
+            pManager[3].Optional = true;
         }
 
         /// <summary>
@@ -38,8 +53,8 @@ namespace Antflow.Traffic
         protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
         {
             pManager.AddCurveParameter("Parkingspaces", "Parkingspaces", "Parkingspaces", GH_ParamAccess.list);
-            pManager.AddGeometryParameter("Otherlines", "Otherlines", "Otherlines", GH_ParamAccess.list);
-            pManager.AddGeometryParameter("Debug", "Debug", "Debug", GH_ParamAccess.list);
+            //pManager.AddGeometryParameter("Otherlines", "Otherlines", "Otherlines", GH_ParamAccess.list);
+            //pManager.AddGeometryParameter("Debug", "Debug", "Debug", GH_ParamAccess.list);
             
         }
 
@@ -53,11 +68,13 @@ namespace Antflow.Traffic
             Curve BounderyCrv = null;
             Plane? xyPlane = null;
             List<GeometryBase> obstacles = new List<GeometryBase>();
+            int stepSize = 10;
 
             //Get inputs
             DA.GetData(0, ref BounderyCrv);
             DA.GetData(1, ref xyPlane);
             DA.GetDataList(2, obstacles);
+            DA.GetData(3, ref stepSize);
 
             //Select localrules TODO
             var localrules = new LocalRules();
@@ -73,16 +90,16 @@ namespace Antflow.Traffic
                 int maxNoLots = int.MinValue;
                 int degreeIndex = 0;
 
-                Parallel.For(0, 180, i =>
+                Parallel.For(0, 180/stepSize, i =>
                 {
                     Plane newPlane = Plane.WorldXY;
-                    newPlane.Rotate(i*(Math.PI / 180.0), new Vector3d(0, 0, 1));
+                    newPlane.Rotate(i*stepSize*(Math.PI / 180.0), new Vector3d(0, 0, 1));
                     try
                     {
                         var tempParkingLot = new ParkingLot(BounderyCrv, localrules, newPlane, obstacles);
 
                         numberOfParkinglots.SetValue(tempParkingLot.parkingspaceNO, i);
-                        degrees.SetValue(i, i);
+                        degrees.SetValue(i * stepSize, i);
 
                     }
                     catch
@@ -92,7 +109,7 @@ namespace Antflow.Traffic
 
                 });
 
-                for (int i = 0; i < 180; i++)
+                for (int i = 0; i < 180/stepSize; i++)
                 {
                     try
                     {
@@ -110,7 +127,7 @@ namespace Antflow.Traffic
                     }
                 }
                 Plane bestPlane = Plane.WorldXY;
-                bestPlane.Rotate(degreeIndex * (Math.PI / 180.0), new Vector3d(0, 0, 1));
+                bestPlane.Rotate(degreeIndex*stepSize * (Math.PI / 180.0), new Vector3d(0, 0, 1));
                 parkingLot = new ParkingLot(BounderyCrv, localrules, bestPlane, obstacles);
             }
             else
@@ -130,8 +147,8 @@ namespace Antflow.Traffic
             
             //Set Outputs
             DA.SetDataList(0, SpaceCurves);
-            DA.SetDataList(1, parkingLot.notParkingSpaces);
-            DA.SetDataList(2, parkingLot.debug);
+            //DA.SetDataList(1, parkingLot.notParkingSpaces);
+            //DA.SetDataList(2, parkingLot.debug);
 
 
 
