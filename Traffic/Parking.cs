@@ -29,7 +29,7 @@ namespace Antflow.Traffic
         /// </summary>
         public Parking()
           : base("Parking", "Parking",
-              "Description",
+              "Parking Auto Generator This plugin is currently under development. If you run into any bugs, please post them at https://github.com/Esrup/Antflow",
               "AntFlow", "Traffic")
         {
         }
@@ -45,6 +45,8 @@ namespace Antflow.Traffic
             pManager.AddGeometryParameter("Obstacles", "Obstacles", "Obstacles", GH_ParamAccess.list);
             pManager.AddIntegerParameter("Precision", "Precision", "The step size in degrees, that the script should be running", GH_ParamAccess.item, 10);
             pManager[3].Optional = true;
+            pManager.AddNumberParameter("Custom Size Parameters", "Custom Size Parameters", "--Temporary-- Insert a list of 3 numbers, to override sizes (Booth Depth, Booth Width, Maneuvering Length)", GH_ParamAccess.list);
+            pManager[4].Optional = true;
         }
 
         /// <summary>
@@ -69,15 +71,26 @@ namespace Antflow.Traffic
             Plane? xyPlane = null;
             List<GeometryBase> obstacles = new List<GeometryBase>();
             int stepSize = 10;
+            List<double> customRules = new List<double>();
 
             //Get inputs
             DA.GetData(0, ref BounderyCrv);
             DA.GetData(1, ref xyPlane);
             DA.GetDataList(2, obstacles);
             DA.GetData(3, ref stepSize);
+            DA.GetDataList(4, customRules);
 
-            //Select localrules TODO
-            var localrules = new LocalRules();
+            //Select localrules Temporary
+            LocalRules localRules;
+            if(customRules.Count == 0)
+            {
+                localRules = new LocalRules();
+            }
+            else
+            {
+                localRules = new LocalRules(customRules);
+            }
+
 
             //Create Parkinglots - Check if there is a plane userinput
             ParkingLot parkingLot;
@@ -96,7 +109,7 @@ namespace Antflow.Traffic
                     newPlane.Rotate(i*stepSize*(Math.PI / 180.0), new Vector3d(0, 0, 1));
                     try
                     {
-                        var tempParkingLot = new ParkingLot(BounderyCrv, localrules, newPlane, obstacles);
+                        var tempParkingLot = new ParkingLot(BounderyCrv, localRules, newPlane, obstacles);
 
                         numberOfParkinglots.SetValue(tempParkingLot.parkingspaceNO, i);
                         degrees.SetValue(i * stepSize, i);
@@ -128,13 +141,13 @@ namespace Antflow.Traffic
                 }
                 Plane bestPlane = Plane.WorldXY;
                 bestPlane.Rotate(degreeIndex*stepSize * (Math.PI / 180.0), new Vector3d(0, 0, 1));
-                parkingLot = new ParkingLot(BounderyCrv, localrules, bestPlane, obstacles);
+                parkingLot = new ParkingLot(BounderyCrv, localRules, bestPlane, obstacles);
             }
             else
             {
             //Create Parking lot with user choosen Plane
             
-            parkingLot = new ParkingLot(BounderyCrv, localrules, xyPlane.Value, obstacles);
+            parkingLot = new ParkingLot(BounderyCrv, localRules, xyPlane.Value, obstacles);
             }
 
             List<Curve> SpaceCurves = new List<Curve>();

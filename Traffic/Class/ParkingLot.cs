@@ -54,15 +54,30 @@ namespace Antflow.Traffic.Class
 
 
         //Create Parkinglots along edge
-        private void CreateOuterParkingLot(Curve bounderyCurve, LocalRules localRules, Plane plane)
+        private void CreateOuterParkingLot(Curve boundaryCurve, LocalRules localRules, Plane plane)
         {
             
             //Change Curve offset
-            BoundingBox bx = bounderyCurve.GetBoundingBox(Plane.WorldXY);
+            BoundingBox bx = boundaryCurve.GetBoundingBox(Plane.WorldXY);
             Point3d[] bxPT = bx.GetCorners();
-            Curve[] offsetBoundery = bounderyCurve.Offset(bxPT[0], Vector3d.ZAxis, -localRules.BoothDepth, 0.0, CurveOffsetCornerStyle.Sharp);
+            Vector3d outsideVector = bxPT[0] - bxPT[2];
+            outsideVector.Unitize();
+            Point3d outsidePT = bxPT[0] + outsideVector;
+            Curve[] offsetBoundary = boundaryCurve.Offset(outsidePT, Vector3d.ZAxis, -localRules.BoothDepth, 0.01, CurveOffsetCornerStyle.Sharp);
+
+            //Sometimes offset fails. This checks for that and uses alternative method, less precise method
+            if (offsetBoundary[0].GetLength() < (localRules.BoothDepth*2) + Math.Sqrt((Math.Pow(localRules.BoothDepth, 2) * 2)) + 1)
+            {
+                offsetBoundary = boundaryCurve.Offset(Plane.WorldXY, localRules.BoothDepth, 0.01, CurveOffsetCornerStyle.Sharp);
+                //Check direction
+                if (offsetBoundary[0].Contains(boundaryCurve.PointAtStart, Plane.WorldXY, 0.01) == PointContainment.Inside)
+                {
+                    offsetBoundary = boundaryCurve.Offset(Plane.WorldXY, -localRules.BoothDepth, 0.01, CurveOffsetCornerStyle.Sharp);
+                }
+            }
+
             List<Curve> explodeOffsetBoundary = new List<Curve>();
-            foreach (var curve in offsetBoundery)
+            foreach (var curve in offsetBoundary)
             {
                 if(curve is PolylineCurve)
                 {
@@ -73,9 +88,18 @@ namespace Antflow.Traffic.Class
                     explodeOffsetBoundary.Add(curve);
                 }
             }
-            Curve[] offsetBounderyjoined = Curve.JoinCurves(offsetBoundery, 0.5);
 
-            debug.AddRange(explodeOffsetBoundary);
+            Curve[] offsetBoundaryjoined;
+            if (offsetBoundary.Length > 2)
+            {
+                offsetBoundaryjoined = Curve.JoinCurves(offsetBoundary, 0.5);
+            }
+            else
+            {
+                offsetBoundaryjoined = offsetBoundary;
+            }
+
+            
 
             //Make Outer parkingplots
 
@@ -91,7 +115,7 @@ namespace Antflow.Traffic.Class
                     Vector3d Dir = curve.TangentAt(divpar[i]);
                     Dir.Rotate(Math.PI / 2, Vector3d.ZAxis);
                     Dir.Unitize();
-                    if (bounderyCurve.ClosedCurveOrientation() == CurveOrientation.CounterClockwise)
+                    if (boundaryCurve.ClosedCurveOrientation() == CurveOrientation.CounterClockwise)
                     {
 
                         Dir.Reverse();
@@ -112,26 +136,26 @@ namespace Antflow.Traffic.Class
                 List<int> spacesToCull = new List<int>();
 
                 // Check if Parkinglot fullfill criterias
-                if (bounderyCurve.IsPeriodic != true)
+                if (boundaryCurve.IsPeriodic != true)
                 {
                     for (int j = 0; j < tempSpaces.Count; j++)
                     {
                         Curve boxCurves = tempSpaces[j].ManeuveringBox.ToNurbsCurve();
 
                         //Check for maneuveringarea
-                        if (Intersection.CurveCurve(offsetBounderyjoined[0], boxCurves, 0.0, 0.001).Count > 1)
+                        if (Intersection.CurveCurve(offsetBoundaryjoined[0], boxCurves, 0.0, 0.001).Count > 1)
                         {
 
                             spacesToCull.Add(j);
                             continue;
                         }
                         //Check if booths exceed the ends
-                        if (offsetBounderyjoined[0].Contains(tempSpaces[j].Curves.PointAtStart, plane, 0.001) != PointContainment.Coincident)
+                        if (offsetBoundaryjoined[0].Contains(tempSpaces[j].Curves.PointAtStart, plane, 0.001) != PointContainment.Coincident)
                         {
                             spacesToCull.Add(j);
                             continue;
                         }
-                        if (offsetBounderyjoined[0].Contains(tempSpaces[j].Curves.PointAtEnd, plane, 0.001) != PointContainment.Coincident)
+                        if (offsetBoundaryjoined[0].Contains(tempSpaces[j].Curves.PointAtEnd, plane, 0.001) != PointContainment.Coincident)
                         {
                             spacesToCull.Add(j);
                             continue;
@@ -144,12 +168,12 @@ namespace Antflow.Traffic.Class
                         {
                             continue;
                         }
-                        if (bounderyCurve.Contains(tempSpaces[i].Curves.PointAtLength(localRules.BoothDepth), Plane.WorldXY, 0.001) != PointContainment.Coincident)
+                        if (boundaryCurve.Contains(tempSpaces[i].Curves.PointAtLength(localRules.BoothDepth), Plane.WorldXY, 0.001) != PointContainment.Coincident)
                         {
                             spacesToCull.Add(i);
                             continue;
                         }
-                        if (bounderyCurve.Contains(tempSpaces[i].Curves.PointAtLength(tempSpaces[i].Curves.GetLength()-localRules.BoothDepth), Plane.WorldXY, 0.001) != PointContainment.Coincident)
+                        if (boundaryCurve.Contains(tempSpaces[i].Curves.PointAtLength(tempSpaces[i].Curves.GetLength()-localRules.BoothDepth), Plane.WorldXY, 0.001) != PointContainment.Coincident)
                         {
                             spacesToCull.Add(i);
                             continue;
@@ -169,16 +193,30 @@ namespace Antflow.Traffic.Class
         }
 
         //Create inner Parkinglots
-        private void CreateInnerParkinglots(Curve bounderyCurve, LocalRules localRules, Plane plane)
+        private void CreateInnerParkinglots(Curve boundaryCurve, LocalRules localRules, Plane plane)
         {
 
             //Create offset curve with outer booth and driveway distance
-            BoundingBox bx = bounderyCurve.GetBoundingBox(Plane.WorldXY);
+            BoundingBox bx = boundaryCurve.GetBoundingBox(Plane.WorldXY);
             Point3d[] bxPT = bx.GetCorners();
-            Curve innerBounderyCrv = bounderyCurve.Offset(bxPT[0], Vector3d.ZAxis, -(localRules.BoothDepth + localRules.ManeuveringArea), 0.5, CurveOffsetCornerStyle.Sharp)[0];
+            Vector3d outsideVector = bxPT[0] - bxPT[2];
+            outsideVector.Unitize();
+            Point3d outsidePT = bxPT[0] + outsideVector;
+            Curve[] innerBounderyCrv = boundaryCurve.Offset(outsidePT, Vector3d.ZAxis, -(localRules.BoothDepth + localRules.ManeuveringArea), 0.5, CurveOffsetCornerStyle.Sharp);
             
+            //Sometimes offset fails. This checks for that and uses alternative method, less precise method
+            if (innerBounderyCrv[0].GetLength() < ((localRules.BoothDepth + localRules.ManeuveringArea) * 2) + Math.Sqrt((Math.Pow(localRules.BoothDepth + localRules.ManeuveringArea, 2) * 2)) + 1)
+            {
+                innerBounderyCrv = boundaryCurve.Offset(Plane.WorldXY, localRules.BoothDepth + localRules.ManeuveringArea, 0.01, CurveOffsetCornerStyle.Sharp);
+                //Check direction
+                if (innerBounderyCrv[0].Contains(boundaryCurve.PointAtStart, Plane.WorldXY, 0.01) == PointContainment.Inside)
+                {
+                    innerBounderyCrv = boundaryCurve.Offset(Plane.WorldXY, -(localRules.BoothDepth + localRules.ManeuveringArea), 0.01, CurveOffsetCornerStyle.Sharp);
+                }
+            }
+            debug.AddRange(innerBounderyCrv);
             //Create BB and centerlines
-            innerBounderyCrv.GetBoundingBox(plane, out Box boundarybox);
+            innerBounderyCrv[0].GetBoundingBox(plane, out Box boundarybox);
             Point3d[] boxCorners = boundarybox.GetCorners();
             Line startLine = new Line(boxCorners[0], boxCorners[1]);
             Line endLine = new Line(boxCorners[3], boxCorners[2]);
@@ -203,7 +241,7 @@ namespace Antflow.Traffic.Class
             //Find inner curves
             foreach (Curve crvline in copyLines)
             {
-                var curveEvent = Intersection.CurveCurve(innerBounderyCrv, crvline, 0, 0);
+                var curveEvent = Intersection.CurveCurve(innerBounderyCrv[0], crvline, 0, 0);
                 if (curveEvent != null)
                 {
                     List<double> curveT = new List<double>();
@@ -221,7 +259,7 @@ namespace Antflow.Traffic.Class
 
                         double midT = (curve.Domain.T0 + curve.Domain.T1) / 2;
 
-                        if (innerBounderyCrv.Contains(curve.PointAt(midT), Plane.WorldXY, 0).Equals(PointContainment.Inside))
+                        if (innerBounderyCrv[0].Contains(curve.PointAt(midT), Plane.WorldXY, 0).Equals(PointContainment.Inside))
                         {
                             CenterLines.Add(curve);
                         }
@@ -263,7 +301,7 @@ namespace Antflow.Traffic.Class
                 List<Parkingspace> finalParkingLinesRight = new List<Parkingspace>();
                 for (int i = 0; i < parkingLinesLeft.Count; i++)
                 {
-                    CurveIntersections crvEvent = Intersection.CurveCurve(innerBounderyCrv, parkingLinesLeft[i].Curves, 0.0001, 0.0000);
+                    CurveIntersections crvEvent = Intersection.CurveCurve(innerBounderyCrv[0], parkingLinesLeft[i].Curves, 0.0001, 0.0000);
                     if (crvEvent.Count > 0)
                     {
                         parkingEnds.Add(parkingLinesLeft[i].Curves);
@@ -279,7 +317,7 @@ namespace Antflow.Traffic.Class
 
                 for (int i = 0; i < parkingLinesRight.Count; i++)
                 {
-                    CurveIntersections crvEvent = Intersection.CurveCurve(innerBounderyCrv, parkingLinesRight[i].Curves, 0.0001, 0.0000);
+                    CurveIntersections crvEvent = Intersection.CurveCurve(innerBounderyCrv[0], parkingLinesRight[i].Curves, 0.0001, 0.0000);
                     if (crvEvent.Count > 0)
                     {
                         parkingEnds.Add(parkingLinesRight[i].Curves);

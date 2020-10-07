@@ -32,5 +32,34 @@ namespace Antflow.Traffic.Class
             BoothWidth = 2;
             ManeuveringArea = 7;
         }
+
+        public LocalRules(List<double> customrules)
+        {
+            try
+            {
+                BoothDepth = customrules[0];
+            }
+            catch 
+            {
+                BoothDepth = 5;
+            }
+            try
+            {
+                BoothWidth = customrules[1];
+            }
+            catch
+            {
+                BoothWidth = 2;
+            }
+            try
+            {
+                ManeuveringArea = customrules[2];
+            }
+            catch
+            {
+                ManeuveringArea = 7;
+            }
+            
+        }
     }
 }
